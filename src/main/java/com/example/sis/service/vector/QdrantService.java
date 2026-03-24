@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.util.StringUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -28,16 +29,31 @@ public class QdrantService {
     
     @Value("${qdrant.port:6333}")
     private int qdrantPort;
+
+    @Value("${qdrant.scheme:http}")
+    private String qdrantScheme;
+
+    @Value("${qdrant.api-key:}")
+    private String qdrantApiKey;
+
+    @Value("${qdrant.enabled:true}")
+    private boolean qdrantEnabled;
     
     @Value("${qdrant.collection.name:sis-knowledge-base}")
     private String collectionName;
     
     private static final int VECTOR_SIZE = 1024; // Cohere embed-english-v3.0
+    private volatile boolean qdrantAvailable = false;
     
     private WebClient getWebClient() {
-        return webClientBuilder
-            .baseUrl(String.format("http://%s:%d", qdrantHost, qdrantPort))
-            .build();
+        String baseUrl = String.format("%s://%s:%d", qdrantScheme, qdrantHost, qdrantPort);
+        WebClient.Builder builder = webClientBuilder.baseUrl(baseUrl);
+
+        if (StringUtils.hasText(qdrantApiKey)) {
+            builder.defaultHeader("api-key", qdrantApiKey.trim());
+        }
+
+        return builder.build();
     }
     
     /**
@@ -46,6 +62,12 @@ public class QdrantService {
      */
     @PostConstruct
     public void initializeCollection() {
+        if (!qdrantEnabled) {
+            qdrantAvailable = false;
+            log.warn("Qdrant disabled by configuration (qdrant.enabled=false)");
+            return;
+        }
+
         try {
             // Check if collection exists by trying to get its info
             Boolean exists = getWebClient()
@@ -68,6 +90,7 @@ public class QdrantService {
             
             if (Boolean.TRUE.equals(exists)) {
                 log.info("Qdrant collection '{}' already exists", collectionName);
+                qdrantAvailable = true;
                 return;
             }
             
@@ -88,10 +111,13 @@ public class QdrantService {
                 .block();
             
             log.info("Created Qdrant collection: {}", collectionName);
+            qdrantAvailable = true;
             
         } catch (Exception e) {
-            log.error("Failed to initialize Qdrant collection", e);
-            throw new RuntimeException("Qdrant initialization failed", e);
+            qdrantAvailable = false;
+            log.warn("Qdrant unavailable at startup ({}://{}:{}). App continues without vector features.",
+                qdrantScheme, qdrantHost, qdrantPort);
+            log.debug("Qdrant initialization details", e);
         }
     }
     
