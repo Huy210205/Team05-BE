@@ -33,6 +33,9 @@ public class QdrantService {
     @Value("${qdrant.scheme:http}")
     private String qdrantScheme;
 
+    @Value("${qdrant.url:}")
+    private String qdrantUrl;
+
     @Value("${qdrant.api-key:}")
     private String qdrantApiKey;
 
@@ -46,7 +49,12 @@ public class QdrantService {
     private volatile boolean qdrantAvailable = false;
     
     private WebClient getWebClient() {
-        String baseUrl = String.format("%s://%s:%d", qdrantScheme, qdrantHost, qdrantPort);
+        String baseUrl;
+        if (StringUtils.hasText(qdrantUrl)) {
+            baseUrl = qdrantUrl.trim().replaceAll("/$", "");
+        } else {
+            baseUrl = String.format("%s://%s:%d", qdrantScheme, qdrantHost, qdrantPort);
+        }
         WebClient.Builder builder = webClientBuilder.baseUrl(baseUrl);
 
         if (StringUtils.hasText(qdrantApiKey)) {
